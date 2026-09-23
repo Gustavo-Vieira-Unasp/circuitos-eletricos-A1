@@ -21,4 +21,15 @@ A diretriz compartilhada no remoto é este arquivo + `REGISTRO_IA.md`. Regras em
 
 ## Solvers
 
-Implementar do zero (sem `scipy.linalg` ou equivalentes): eliminação gaussiana, LU e Cholesky, com contagem de flops.
+Etapa 3 atual: **somente eliminação gaussiana** (loops manuais `+ - * /`, com contagem de flops) em `solvers_nodal.py`.
+
+Bibliotecas em uso (nenhuma resolve `A x = b`):
+
+- `__future__.annotations` — adia avaliação de type hints
+- `argparse` — CLI (`--paste`, caminho do `.txt`)
+- `sys` — stdin/stderr e exit
+- `pathlib.Path` — caminhos do export Falstad
+- `typing` — aliases (`Matrix`, `Vector`, …); sem matemática em runtime
+- `fractions.Fraction` — literais exatos só na matriz de referência (Etapa 2); vira `float` antes do Gauss
+
+**Proibido:** `numpy` / `scipy` / `math` (ou equivalentes) para fatorar ou resolver o sistema.
