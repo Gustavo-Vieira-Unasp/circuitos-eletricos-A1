@@ -13,9 +13,10 @@ A diretriz compartilhada no remoto é este arquivo + `REGISTRO_IA.md`. Regras em
 
 ## Decisões do projeto
 
-- Análise **nodal** apenas (sistema governante \(\mathbf{A}\mathbf{x}=\mathbf{b}\) via nós).
+- Análise **nodal** apenas (sistema governante `A x = b` via nós).
 - Resistores em **ohms pequenos** (ex.: 1…8 Ω), não kΩ.
-- Preferir fontes de corrente independentes para \(\mathbf{G}\) SPD (Cholesky).
+- Preferir fontes de corrente independentes para `G` SPD (Cholesky).
+- Documentar `G` / `A` com **frações** (não decimais) em `formulacao_nodal.md`.
 - Circuito: `circuito_falstad.txt`. Formulação: `formulacao_nodal.md`.
 
 ## Solvers
