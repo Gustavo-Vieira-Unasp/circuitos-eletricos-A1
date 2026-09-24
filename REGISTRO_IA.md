@@ -17,5 +17,9 @@ Registro de qual IA / agente produziu cada parte do trabalho.
 | Desc. soft das libs | 3 | Blurbs do que cada import faz (I/O/typing/ref); nenhuma resolve o sistema | Cursor Auto (Composer) |
 | Fatoração LU | 3 | `fatoracao_LU.py`: Doolittle sem pivô; L/U/x/flops; checks L·U, resíduo, vs Gauss; reusa `obter_sistema` | Cursor Grok 4.6 |
 | Fatoração Cholesky | 3 | `fatoracao_cholesky.py`: Banachiewicz `L L^T`; raiz Newton; y/x/flops; checks vs Gauss e LU; reusa `obter_sistema` | Cursor Grok 4.6 |
+| Auditoria de flops + docs | 3 | Gauss com j a partir de k+1 (flops comparáveis à LU); Cholesky reporta flops sem raízes / raízes Newton / total e compara com LU; títulos neutros; "Próximo passo" atualizado | Cursor Auto (Composer) |
+| Título do menu por método | 3 | `obter_sistema`/`menu_interativo` recebem `metodo`; título e ajuda mostram Gauss / LU / Cholesky conforme o script | Cursor Auto (Composer) |
+| main + entrega única | 3 | `__pycache__` no `.gitignore`; helpers comuns em `solvers_nodal`; `executar_gauss/lu/cholesky`; `main.py` roda os três; `gerar_entrega.py` gera `entrega/atividade01_circuitos.py` (com Etapas 1–2 no cabeçalho) + `.txt` | Cursor Auto (Composer) |
+| Nomes + saída embutida | 3 | Nomes do grupo no cabeçalho da entrega; saída do console anexada como comentário no fim de `entrega/atividade01_circuitos.py` | Cursor Auto (Composer) |
 
 Convenção: novas linhas são **acrescentadas** ao final da tabela a cada entrega parcial (sem coluna de data).
