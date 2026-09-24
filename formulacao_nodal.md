@@ -174,4 +174,4 @@ Auditoria independente a partir de `circuito_falstad.txt` (aritmética exata com
 
 ## Próximo passo
 
-**Etapa 3:** implementar no Python (do zero) eliminação gaussiana sobre este `A`, `b`, com contagem de flops.
+**Etapa 3 (implementada):** este `A`, `b` é resolvido do zero, com contagem de flops, em [`solvers_nodal.py`](solvers_nodal.py) (eliminação gaussiana), [`fatoracao_LU.py`](fatoracao_LU.py) (LU Doolittle) e [`fatoracao_cholesky.py`](fatoracao_cholesky.py) (Cholesky).

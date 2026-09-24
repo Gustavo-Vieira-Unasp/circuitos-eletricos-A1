@@ -233,10 +233,12 @@ def carregar_de_paste() -> Tuple[Matrix, Vector, List[Point], str]:
     return A, b, nos, "(paste)"
 
 
-def menu_interativo() -> Tuple[Matrix, Vector, List[Point], str, bool]:
+def menu_interativo(
+    metodo: str = "eliminacao gaussiana",
+) -> Tuple[Matrix, Vector, List[Point], str, bool]:
     """Menu quando o usuario aperta Run sem argumentos CLI."""
     print("=" * 60)
-    print("Circuito nodal — eliminacao gaussiana")
+    print(f"Circuito nodal - {metodo}")
     print("=" * 60)
     print(f"1) [Enter] Default: {ARQUIVO_DEFAULT.name}")
     print(f"          ({ARQUIVO_DEFAULT})")
@@ -267,20 +269,24 @@ def menu_interativo() -> Tuple[Matrix, Vector, List[Point], str, bool]:
     raise ValueError(f"Opcao invalida: {escolha!r} (use 1, 2 ou 3).")
 
 
-def obter_sistema(argv: Optional[Sequence[str]] = None) -> Tuple[Matrix, Vector, List[Point], str, bool]:
+def obter_sistema(
+    argv: Optional[Sequence[str]] = None,
+    metodo: str = "eliminacao gaussiana",
+) -> Tuple[Matrix, Vector, List[Point], str, bool]:
     """
     Retorna A, b, nos_livres, origem, usar_ref_check.
     Sem args CLI -> menu interativo. Com args -> modo nao interativo.
+    `metodo` so aparece no titulo do menu e na ajuda do argparse.
     """
     if argv is None:
         argv = sys.argv[1:]
 
     # Run / python script.py sem args -> menu
     if len(argv) == 0:
-        return menu_interativo()
+        return menu_interativo(metodo)
 
     parser = argparse.ArgumentParser(
-        description="Resolve o sistema nodal (Gauss) a partir de um export Falstad (.txt)."
+        description=f"Resolve o sistema nodal A x = b ({metodo}) a partir de um export Falstad (.txt)."
     )
     parser.add_argument(
         "arquivo",
@@ -307,7 +313,7 @@ def obter_sistema(argv: Optional[Sequence[str]] = None) -> Tuple[Matrix, Vector,
         A, b, nos, origem = carregar_de_arquivo(caminho)
         return A, b, nos, origem, False
 
-    return menu_interativo()
+    return menu_interativo(metodo)
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +340,59 @@ def imprimir_vetor(nome: str, v: Vector, casas: int = 6) -> None:
     print(f"{nome} = [ {cells} ]")
 
 
+def imprimir_secao(titulo: str) -> None:
+    print("\n" + "-" * 60)
+    print(titulo)
+    print("-" * 60)
+
+
+def imprimir_cabecalho(
+    titulo: str, origem: str, nos: List[Point], A: Matrix, b: Vector
+) -> None:
+    """Titulo da execucao, origem do circuito, ordem dos nos, A e b."""
+    print()
+    print("=" * 60)
+    print(titulo)
+    print(f"Circuito: {origem}")
+    print(f"Nos livres (ordem de x), reps (x,y): {nos}")
+    print("=" * 60)
+    imprimir_matriz("A", A)
+    imprimir_vetor("\nb", b)
+
+
+def max_abs_diff_matriz(A: Matrix, B: Matrix) -> float:
+    m = 0.0
+    for i in range(len(A)):
+        for j in range(len(A[i])):
+            d = abs(A[i][j] - B[i][j])
+            if d > m:
+                m = d
+    return m
+
+
+def max_abs_diff_vetor(u: Vector, v: Vector) -> float:
+    m = 0.0
+    for i in range(len(u)):
+        d = abs(u[i] - v[i])
+        if d > m:
+            m = d
+    return m
+
+
+def residuo(A: Matrix, x: Vector, b: Vector) -> float:
+    """max_i | (A x)_i - b_i |."""
+    n = len(A)
+    rmax = 0.0
+    for i in range(n):
+        soma = 0.0
+        for j in range(n):
+            soma = soma + A[i][j] * x[j]
+        d = abs(soma - b[i])
+        if d > rmax:
+            rmax = d
+    return rmax
+
+
 # ---------------------------------------------------------------------------
 # Eliminacao gaussiana + substituicao retroativa
 # ---------------------------------------------------------------------------
@@ -352,7 +411,8 @@ def eliminacao_gaussiana(A: Matrix, b: Vector) -> Tuple[Vector, int]:
         for i in range(k + 1, n):
             fator = M[i][k] / pivo
             flops += 1
-            for j in range(k, n):
+            M[i][k] = 0.0
+            for j in range(k + 1, n):
                 M[i][j] = M[i][j] - fator * M[k][j]
                 flops += 2
             y[i] = y[i] - fator * y[k]
@@ -370,39 +430,38 @@ def eliminacao_gaussiana(A: Matrix, b: Vector) -> Tuple[Vector, int]:
     return x, flops
 
 
+def executar_gauss(A: Matrix, b: Vector) -> Tuple[Vector, int]:
+    """Resolve por Gauss e imprime x e o custo. Retorna x e flops."""
+    imprimir_secao("Eliminacao gaussiana + substituicao retroativa")
+    x, flops = eliminacao_gaussiana(A, b)
+    imprimir_vetor("x (Gauss)", x)
+    print(f"Flops (Gauss, total): {flops}")
+    return x, flops
+
+
+def verificar_referencia(A: Matrix, b: Vector, x: Vector) -> None:
+    """Compara A, b e x com a formulacao da Etapa 2 (circuito default)."""
+    imprimir_secao("Sanity check vs formulacao_nodal.md (circuito default)")
+    A_ref, b_ref = sistema_referencia()
+    x_ref, _ = eliminacao_gaussiana(A_ref, b_ref)
+    print(f"max |A - A_ref| = {max_abs_diff_matriz(A, A_ref):.3e}")
+    print(f"max |b - b_ref| = {max_abs_diff_vetor(b, b_ref):.3e}")
+    imprimir_vetor("x (ref Etapa 2)", x_ref)
+    print(f"max |x - x_ref| = {max_abs_diff_vetor(x, x_ref):.3e}")
+
+
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     A, b, nos, origem, check_ref = obter_sistema(argv)
+    imprimir_cabecalho("Etapa 3: Eliminacao gaussiana", origem, nos, A, b)
 
-    print()
-    print("=" * 60)
-    print("Etapa 3: Eliminacao gaussiana")
-    print(f"Circuito: {origem}")
-    print(f"Nos livres (ordem de x), reps (x,y): {nos}")
-    print("=" * 60)
-
-    imprimir_matriz("A", A)
-    imprimir_vetor("\nb", b)
-
-    print("\n" + "-" * 60)
-    print("Eliminacao gaussiana + substituicao retroativa")
-    print("-" * 60)
-    x_g, flops_g = eliminacao_gaussiana(A, b)
-    imprimir_vetor("x (Gauss)", x_g)
-    print(f"Flops (Gauss, total): {flops_g}")
+    x_g, _ = executar_gauss(A, b)
 
     if check_ref:
-        print("\n" + "-" * 60)
-        print("Sanity check vs formulacao_nodal.md (circuito default)")
-        print("-" * 60)
-        A_ref, b_ref = sistema_referencia()
-        x_ref, _ = eliminacao_gaussiana(A_ref, b_ref)
-        dif_ref = max(abs(x_g[i] - x_ref[i]) for i in range(len(x_g)))
-        imprimir_vetor("x (ref Etapa 2)", x_ref)
-        print(f"max |x - x_ref| = {dif_ref:.3e}")
+        verificar_referencia(A, b, x_g)
 
 
 if __name__ == "__main__":

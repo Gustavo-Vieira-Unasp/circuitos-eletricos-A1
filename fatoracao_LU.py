@@ -31,10 +31,15 @@ from solvers_nodal import (
     copiar_matriz,
     copiar_vetor,
     eliminacao_gaussiana,
+    imprimir_cabecalho,
     imprimir_matriz,
+    imprimir_secao,
     imprimir_vetor,
+    max_abs_diff_matriz,
+    max_abs_diff_vetor,
     obter_sistema,
-    sistema_referencia,
+    residuo,
+    verificar_referencia,
 )
 
 
@@ -74,9 +79,9 @@ def decomposicao_lu(A: Matrix) -> Tuple[Matrix, Matrix, int]:
     return L, U, flops
 
 
-def substituicao_direta(L: Matrix, b: Vector) -> Tuple[Vector, int]:
+def substituicao_direta_unitaria(L: Matrix, b: Vector) -> Tuple[Vector, int]:
     """
-    Resolve L y = b (forward). Lii = 1, logo nao ha divisao.
+    Resolve L y = b (forward) com Lii = 1, logo nao ha divisao.
 
     Etapa: y[i] = b[i] - soma_j<i L[i][j] * y[j].
     """
@@ -125,7 +130,7 @@ def resolver_lu(
     Retorna L, U, x e os flops (fatoracao, forward, backward, total).
     """
     L, U, flops_fat = decomposicao_lu(A)
-    y, flops_fwd = substituicao_direta(L, b)
+    y, flops_fwd = substituicao_direta_unitaria(L, b)
     x, flops_bwd = substituicao_retroativa(U, y)
     flops_total = flops_fat + flops_fwd + flops_bwd
     return L, U, x, flops_fat, flops_fwd, flops_bwd, flops_total
@@ -148,37 +153,28 @@ def multiplicar_LU(L: Matrix, U: Matrix) -> Matrix:
     return A_hat
 
 
-def max_abs_diff_matriz(A: Matrix, B: Matrix) -> float:
-    m = 0.0
-    for i in range(len(A)):
-        for j in range(len(A[i])):
-            d = abs(A[i][j] - B[i][j])
-            if d > m:
-                m = d
-    return m
+def executar_lu(A: Matrix, b: Vector) -> Tuple[Vector, int, int]:
+    """
+    Fatora, resolve e imprime L, U, x, custos e verificacao.
+    Retorna x, flops da fatoracao e flops totais.
+    """
+    imprimir_secao(
+        "Decomposicao LU (Doolittle, sem pivoteamento)\n"
+        "A = L U;  L y = b;  U x = y"
+    )
+    L, U, x, flops_fat, flops_fwd, flops_bwd, flops_total = resolver_lu(A, b)
+    imprimir_matriz("L", L)
+    imprimir_matriz("U", U)
+    imprimir_vetor("\nx (LU)", x)
+    print(f"Flops (fatoracao LU): {flops_fat}")
+    print(f"Flops (forward Ly=b): {flops_fwd}")
+    print(f"Flops (backward Ux=y): {flops_bwd}")
+    print(f"Flops (LU, total): {flops_total}")
 
-
-def max_abs_diff_vetor(u: Vector, v: Vector) -> float:
-    m = 0.0
-    for i in range(len(u)):
-        d = abs(u[i] - v[i])
-        if d > m:
-            m = d
-    return m
-
-
-def residuo(A: Matrix, x: Vector, b: Vector) -> float:
-    """max_i | (A x)_i - b_i |."""
-    n = len(A)
-    rmax = 0.0
-    for i in range(n):
-        soma = 0.0
-        for j in range(n):
-            soma = soma + A[i][j] * x[j]
-        d = abs(soma - b[i])
-        if d > rmax:
-            rmax = d
-    return rmax
+    imprimir_secao("Verificacao LU")
+    print(f"max |A - L U| = {max_abs_diff_matriz(A, multiplicar_LU(L, U)):.3e}")
+    print(f"residuo max |A x - b| = {residuo(A, x, b):.3e}")
+    return x, flops_fat, flops_total
 
 
 # ---------------------------------------------------------------------------
@@ -186,52 +182,17 @@ def residuo(A: Matrix, x: Vector, b: Vector) -> float:
 # ---------------------------------------------------------------------------
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
-    A, b, nos, origem, check_ref = obter_sistema(argv)
+    A, b, nos, origem, check_ref = obter_sistema(argv, metodo="decomposicao LU")
+    imprimir_cabecalho("Etapa 3: Decomposicao LU", origem, nos, A, b)
 
-    print()
-    print("=" * 60)
-    print("Etapa 3: Decomposicao LU")
-    print(f"Circuito: {origem}")
-    print(f"Nos livres (ordem de x), reps (x,y): {nos}")
-    print("=" * 60)
-
-    imprimir_matriz("A", A)
-    imprimir_vetor("\nb", b)
-
-    print("\n" + "-" * 60)
-    print("Decomposicao LU (Doolittle, sem pivoteamento)")
-    print("A = L U;  L y = b;  U x = y")
-    print("-" * 60)
-    L, U, x_lu, flops_fat, flops_fwd, flops_bwd, flops_total = resolver_lu(A, b)
-    imprimir_matriz("L", L)
-    imprimir_matriz("U", U)
-    imprimir_vetor("\nx (LU)", x_lu)
-    print(f"Flops (fatoracao LU): {flops_fat}")
-    print(f"Flops (forward Ly=b): {flops_fwd}")
-    print(f"Flops (backward Ux=y): {flops_bwd}")
-    print(f"Flops (LU, total): {flops_total}")
-
-    print("\n" + "-" * 60)
-    print("Verificacao")
-    print("-" * 60)
-    A_hat = multiplicar_LU(L, U)
-    print(f"max |A - L U| = {max_abs_diff_matriz(A, A_hat):.3e}")
-    print(f"residuo max |A x - b| = {residuo(A, x_lu, b):.3e}")
+    x_lu, _, _ = executar_lu(A, b)
 
     x_g, _ = eliminacao_gaussiana(A, b)
     imprimir_vetor("x (Gauss)", x_g)
     print(f"max |x_LU - x_Gauss| = {max_abs_diff_vetor(x_lu, x_g):.3e}")
 
     if check_ref:
-        print("\n" + "-" * 60)
-        print("Sanity check vs formulacao_nodal.md (circuito default)")
-        print("-" * 60)
-        A_ref, b_ref = sistema_referencia()
-        print(f"max |A - A_ref| = {max_abs_diff_matriz(A, A_ref):.3e}")
-        print(f"max |b - b_ref| = {max_abs_diff_vetor(b, b_ref):.3e}")
-        _, _, x_ref, _, _, _, _ = resolver_lu(A_ref, b_ref)
-        imprimir_vetor("x (ref Etapa 2, LU)", x_ref)
-        print(f"max |x - x_ref| = {max_abs_diff_vetor(x_lu, x_ref):.3e}")
+        verificar_referencia(A, b, x_lu)
 
 
 if __name__ == "__main__":

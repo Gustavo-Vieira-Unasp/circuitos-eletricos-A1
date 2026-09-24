@@ -15,7 +15,7 @@ Bibliotecas em uso (nenhuma resolve Ax=b nem fatora):
   - sys — stdin/stderr e saida do processo
   - typing — aliases; sem matematica em runtime
   - solvers_nodal — parser Falstad, I/O de matrizes e Gauss (so para check)
-  - fatoracao_LU — resolver_lu e max_abs_diff_vetor (comparacao pedida no PDF)
+  - fatoracao_LU — resolver_lu (comparacao de custo pedida no PDF)
 
 Proibido para fatorar/resolver: numpy / scipy / math (ou equivalentes).
 A fatoracao de Cholesky e 100% loops manuais com + - * /.
@@ -26,16 +26,21 @@ from __future__ import annotations
 import sys
 from typing import Optional, Sequence, Tuple
 
-from fatoracao_LU import max_abs_diff_vetor, resolver_lu
+from fatoracao_LU import resolver_lu
 from solvers_nodal import (
     Matrix,
     Vector,
     copiar_vetor,
     eliminacao_gaussiana,
+    imprimir_cabecalho,
     imprimir_matriz,
+    imprimir_secao,
     imprimir_vetor,
+    max_abs_diff_matriz,
+    max_abs_diff_vetor,
     obter_sistema,
-    sistema_referencia,
+    residuo,
+    verificar_referencia,
 )
 
 
@@ -71,18 +76,22 @@ def raiz_quadrada(s: float) -> Tuple[float, int]:
 # Fatoracao de Cholesky (Banachiewicz, L inferior)
 # ---------------------------------------------------------------------------
 
-def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int]:
+def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int, int]:
     """
     Fatora A = L L^T.
 
     Etapa: coluna j. A diagonal e a raiz do residual;
     abaixo da diagonal, L[i][j] = (A[i][j] - soma) / L[j][j].
-    Convenção de flops: a - b*c conta 2; cada divisao conta 1;
-    a raiz soma os flops de Newton.
+    Convenção de flops: a - b*c conta 2; cada divisao conta 1.
+    Os flops das raizes (Newton) ficam num contador separado, para que
+    a parte aritmetica seja comparavel com a LU.
+
+    Retorna L, flops aritmeticos (sem raizes) e flops das raizes.
     """
     n = len(A)
     L: Matrix = [[0.0] * n for _ in range(n)]
     flops = 0
+    flops_raiz = 0
 
     for j in range(n):
         s = A[j][j]
@@ -91,7 +100,7 @@ def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int]:
             flops += 2
 
         L[j][j], flops_sqrt = raiz_quadrada(s)
-        flops += flops_sqrt
+        flops_raiz += flops_sqrt
         if abs(L[j][j]) < 1e-15:
             raise ZeroDivisionError(f"Pivo nulo na coluna {j} (Cholesky).")
 
@@ -103,7 +112,7 @@ def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int]:
             L[i][j] = s / L[j][j]
             flops += 1
 
-    return L, flops
+    return L, flops, flops_raiz
 
 
 def substituicao_direta(L: Matrix, b: Vector) -> Tuple[Vector, int]:
@@ -150,17 +159,18 @@ def substituicao_retroativa_Lt(L: Matrix, y: Vector) -> Tuple[Vector, int]:
 
 def resolver_cholesky(
     A: Matrix, b: Vector
-) -> Tuple[Matrix, Vector, Vector, int, int, int, int]:
+) -> Tuple[Matrix, Vector, Vector, int, int, int, int, int]:
     """
     Encadeia: A = L L^T, L y = b, L^T x = y.
 
-    Retorna L, y, x e os flops (fatoracao, forward, backward, total).
+    Retorna L, y, x e os flops (fatoracao sem raizes, raizes, forward,
+    backward, total).
     """
-    L, flops_fat = decomposicao_cholesky(A)
+    L, flops_fat, flops_raiz = decomposicao_cholesky(A)
     y, flops_fwd = substituicao_direta(L, b)
     x, flops_bwd = substituicao_retroativa_Lt(L, y)
-    flops_total = flops_fat + flops_fwd + flops_bwd
-    return L, y, x, flops_fat, flops_fwd, flops_bwd, flops_total
+    flops_total = flops_fat + flops_raiz + flops_fwd + flops_bwd
+    return L, y, x, flops_fat, flops_raiz, flops_fwd, flops_bwd, flops_total
 
 
 # ---------------------------------------------------------------------------
@@ -180,28 +190,43 @@ def multiplicar_LLt(L: Matrix) -> Matrix:
     return A_hat
 
 
-def max_abs_diff_matriz(A: Matrix, B: Matrix) -> float:
-    m = 0.0
-    for i in range(len(A)):
-        for j in range(len(A[i])):
-            d = abs(A[i][j] - B[i][j])
-            if d > m:
-                m = d
-    return m
+def executar_cholesky(
+    A: Matrix, b: Vector, flops_lu_fat: int, flops_lu: int
+) -> Tuple[Vector, int, int]:
+    """
+    Fatora, resolve e imprime L, y, x, custos, verificacao e a
+    comparacao de custo com a LU. Retorna x, flops sem raizes e total.
+    """
+    imprimir_secao(
+        "Fatoracao de Cholesky (Banachiewicz)\n"
+        "A = L L^T;  L y = b;  L^T x = y"
+    )
+    (
+        L, y, x, flops_fat, flops_raiz, flops_fwd, flops_bwd, flops_total
+    ) = resolver_cholesky(A, b)
+    flops_sem_raiz = flops_total - flops_raiz
+    imprimir_matriz("L", L)
+    imprimir_vetor("\ny (Ly=b)", y)
+    imprimir_vetor("x (Cholesky)", x)
+    print(f"Flops (fatoracao Cholesky, sem raizes): {flops_fat}")
+    print(f"Flops (raizes por Newton, {len(A)} raizes): {flops_raiz}")
+    print(f"Flops (forward Ly=b): {flops_fwd}")
+    print(f"Flops (backward L^T x=y): {flops_bwd}")
+    print(f"Flops (Cholesky, sem raizes): {flops_sem_raiz}")
+    print(f"Flops (Cholesky, total com raizes): {flops_total}")
 
+    imprimir_secao("Verificacao Cholesky")
+    print(f"max |A - L L^T| = {max_abs_diff_matriz(A, multiplicar_LLt(L)):.3e}")
+    print(f"residuo max |A x - b| = {residuo(A, x, b):.3e}")
 
-def residuo(A: Matrix, x: Vector, b: Vector) -> float:
-    """max_i | (A x)_i - b_i |."""
-    n = len(A)
-    rmax = 0.0
-    for i in range(n):
-        soma = 0.0
-        for j in range(n):
-            soma = soma + A[i][j] * x[j]
-        d = abs(soma - b[i])
-        if d > rmax:
-            rmax = d
-    return rmax
+    imprimir_secao("Comparacao de custo: Cholesky x LU")
+    print(f"Fatoracao:  LU = {flops_lu_fat}  |  Cholesky = {flops_fat} (sem raizes)")
+    print(f"Total:      LU = {flops_lu}  |  Cholesky = {flops_sem_raiz} (sem raizes)"
+          f"  /  {flops_total} (com raizes)")
+    print("Cholesky explora a simetria de A: so calcula L, com menos trabalho")
+    print("que a LU (tende a metade para n grande). As raizes por Newton sao um custo")
+    print("extra, porque aqui a raiz e iterativa (sem math.sqrt).")
+    return x, flops_sem_raiz, flops_total
 
 
 # ---------------------------------------------------------------------------
@@ -209,60 +234,21 @@ def residuo(A: Matrix, x: Vector, b: Vector) -> float:
 # ---------------------------------------------------------------------------
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
-    A, b, nos, origem, check_ref = obter_sistema(argv)
+    A, b, nos, origem, check_ref = obter_sistema(argv, metodo="fatoracao de Cholesky")
+    imprimir_cabecalho("Etapa 3: Fatoracao de Cholesky", origem, nos, A, b)
 
-    print()
-    print("=" * 60)
-    print("Etapa 3: Fatoracao de Cholesky")
-    print(f"Circuito: {origem}")
-    print(f"Nos livres (ordem de x), reps (x,y): {nos}")
-    print("=" * 60)
+    _, _, x_lu, flops_lu_fat, _, _, flops_lu = resolver_lu(A, b)
+    x_ch, _, _ = executar_cholesky(A, b, flops_lu_fat, flops_lu)
 
-    imprimir_matriz("A", A)
-    imprimir_vetor("\nb", b)
-
-    print("\n" + "-" * 60)
-    print("Fatoracao de Cholesky (Banachiewicz)")
-    print("A = L L^T;  L y = b;  L^T x = y")
-    print("-" * 60)
-    L, y, x_ch, flops_fat, flops_fwd, flops_bwd, flops_total = resolver_cholesky(
-        A, b
-    )
-    imprimir_matriz("L", L)
-    imprimir_vetor("\ny (Ly=b)", y)
-    imprimir_vetor("x (Cholesky)", x_ch)
-    print(f"Flops (fatoracao Cholesky): {flops_fat}")
-    print(f"Flops (forward Ly=b): {flops_fwd}")
-    print(f"Flops (backward L^T x=y): {flops_bwd}")
-    print(f"Flops (Cholesky, total): {flops_total}")
-
-    print("\n" + "-" * 60)
-    print("Verificacao")
-    print("-" * 60)
-    A_hat = multiplicar_LLt(L)
-    print(f"max |A - L L^T| = {max_abs_diff_matriz(A, A_hat):.3e}")
-    print(f"residuo max |A x - b| = {residuo(A, x_ch, b):.3e}")
-
+    imprimir_secao("Cholesky x Gauss x LU")
     x_g, _ = eliminacao_gaussiana(A, b)
     imprimir_vetor("x (Gauss)", x_g)
-    print(f"max |x_Cholesky - x_Gauss| = {max_abs_diff_vetor(x_ch, x_g):.3e}")
-
-    _, _, x_lu, _, _, _, flops_lu = resolver_lu(A, b)
     imprimir_vetor("x (LU)", x_lu)
+    print(f"max |x_Cholesky - x_Gauss| = {max_abs_diff_vetor(x_ch, x_g):.3e}")
     print(f"max |x_Cholesky - x_LU| = {max_abs_diff_vetor(x_ch, x_lu):.3e}")
-    print(f"Flops (LU, total): {flops_lu}")
-    print(f"Flops (Cholesky, total): {flops_total}")
 
     if check_ref:
-        print("\n" + "-" * 60)
-        print("Sanity check vs formulacao_nodal.md (circuito default)")
-        print("-" * 60)
-        A_ref, b_ref = sistema_referencia()
-        print(f"max |A - A_ref| = {max_abs_diff_matriz(A, A_ref):.3e}")
-        print(f"max |b - b_ref| = {max_abs_diff_vetor(b, b_ref):.3e}")
-        _, _, x_ref, _, _, _, _ = resolver_cholesky(A_ref, b_ref)
-        imprimir_vetor("x (ref Etapa 2, Cholesky)", x_ref)
-        print(f"max |x - x_ref| = {max_abs_diff_vetor(x_ch, x_ref):.3e}")
+        verificar_referencia(A, b, x_ch)
 
 
 if __name__ == "__main__":
