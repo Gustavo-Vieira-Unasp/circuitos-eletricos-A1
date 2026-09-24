@@ -16,5 +16,6 @@ Registro de qual IA / agente produziu cada parte do trabalho.
 | Menu Run + so Gauss | 3 | Remoção de LU; menu interativo com default `circuito_falstad.txt` | Cursor Auto (Composer) |
 | Desc. soft das libs | 3 | Blurbs do que cada import faz (I/O/typing/ref); nenhuma resolve o sistema | Cursor Auto (Composer) |
 | Fatoração LU | 3 | `fatoracao_LU.py`: Doolittle sem pivô; L/U/x/flops; checks L·U, resíduo, vs Gauss; reusa `obter_sistema` | Cursor Grok 4.6 |
+| Fatoração Cholesky | 3 | `fatoracao_cholesky.py`: Banachiewicz `L L^T`; raiz Newton; y/x/flops; checks vs Gauss e LU; reusa `obter_sistema` | Cursor Grok 4.6 |
 
 Convenção: novas linhas são **acrescentadas** ao final da tabela a cada entrega parcial (sem coluna de data).
