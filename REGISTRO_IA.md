@@ -15,5 +15,6 @@ Registro de qual IA / agente produziu cada parte do trabalho.
 | Entrada Falstad .txt | 3 | Parser r/i/w/g; default / caminho / `--paste` em `solvers_nodal.py` | Cursor Auto (Composer) |
 | Menu Run + so Gauss | 3 | Remoção de LU; menu interativo com default `circuito_falstad.txt` | Cursor Auto (Composer) |
 | Desc. soft das libs | 3 | Blurbs do que cada import faz (I/O/typing/ref); nenhuma resolve o sistema | Cursor Auto (Composer) |
+| Fatoração LU | 3 | `fatoracao_LU.py`: Doolittle sem pivô; L/U/x/flops; checks L·U, resíduo, vs Gauss; reusa `obter_sistema` | Cursor Grok 4.6 |
 
 Convenção: novas linhas são **acrescentadas** ao final da tabela a cada entrega parcial (sem coluna de data).

@@ -21,7 +21,7 @@ A diretriz compartilhada no remoto é este arquivo + `REGISTRO_IA.md`. Regras em
 
 ## Solvers
 
-Etapa 3 atual: **somente eliminação gaussiana** (loops manuais `+ - * /`, com contagem de flops) em `solvers_nodal.py`.
+Etapa 3: eliminação gaussiana em `solvers_nodal.py`; decomposição LU (Doolittle, sem pivoteamento) em `fatoracao_LU.py`. Ambos usam loops manuais `+ - * /` com contagem de flops. Cholesky ainda não implementado (`fatoracao_cholesky.py`).
 
 Bibliotecas em uso (nenhuma resolve `A x = b`):
 
