@@ -16,6 +16,7 @@ Bibliotecas em uso (nenhuma resolve Ax=b nem fatora):
   - typing — aliases; sem matematica em runtime
   - solvers_nodal — parser Falstad, I/O de matrizes e Gauss (so para check)
   - fatoracao_LU — resolver_lu (comparacao de custo pedida no PDF)
+  - custo_computacional — formulas de flops por fase (so para exibir o custo)
 
 Proibido para fatorar/resolver: numpy / scipy / math (ou equivalentes).
 A fatoracao de Cholesky e 100% loops manuais com + - * /.
@@ -24,8 +25,9 @@ A fatoracao de Cholesky e 100% loops manuais com + - * /.
 from __future__ import annotations
 
 import sys
-from typing import Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
+from custo_computacional import formulas_cholesky, imprimir_tabela_fases
 from fatoracao_LU import resolver_lu
 from solvers_nodal import (
     Matrix,
@@ -76,22 +78,26 @@ def raiz_quadrada(s: float) -> Tuple[float, int]:
 # Fatoracao de Cholesky (Banachiewicz, L inferior)
 # ---------------------------------------------------------------------------
 
-def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int, int]:
+def decomposicao_cholesky(
+    A: Matrix,
+    raiz: Callable[[float], Tuple[float, int]] = raiz_quadrada,
+) -> Tuple[Matrix, int, List[int]]:
     """
     Fatora A = L L^T.
 
     Etapa: coluna j. A diagonal e a raiz do residual;
     abaixo da diagonal, L[i][j] = (A[i][j] - soma) / L[j][j].
-    Convenção de flops: a - b*c conta 2; cada divisao conta 1.
-    Os flops das raizes (Newton) ficam num contador separado, para que
-    a parte aritmetica seja comparavel com a LU.
+    Convencao de flops: a - b*c conta 2; cada divisao conta 1.
+    Os flops das raizes (Newton) ficam separados, um valor por raiz, para
+    que a parte aritmetica seja comparavel com a LU. `raiz` permite trocar
+    a funcao de raiz (ver raiz_quadrada_chute em custo_computacional).
 
-    Retorna L, flops aritmeticos (sem raizes) e flops das raizes.
+    Retorna L, flops aritmeticos (sem raizes) e a lista de flops de cada raiz.
     """
     n = len(A)
     L: Matrix = [[0.0] * n for _ in range(n)]
     flops = 0
-    flops_raiz = 0
+    flops_raizes: List[int] = []
 
     for j in range(n):
         s = A[j][j]
@@ -99,8 +105,8 @@ def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int, int]:
             s = s - L[j][k] * L[j][k]
             flops += 2
 
-        L[j][j], flops_sqrt = raiz_quadrada(s)
-        flops_raiz += flops_sqrt
+        L[j][j], flops_sqrt = raiz(s)
+        flops_raizes.append(flops_sqrt)
         if abs(L[j][j]) < 1e-15:
             raise ZeroDivisionError(f"Pivo nulo na coluna {j} (Cholesky).")
 
@@ -112,7 +118,7 @@ def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int, int]:
             L[i][j] = s / L[j][j]
             flops += 1
 
-    return L, flops, flops_raiz
+    return L, flops, flops_raizes
 
 
 def substituicao_direta(L: Matrix, b: Vector) -> Tuple[Vector, int]:
@@ -159,18 +165,18 @@ def substituicao_retroativa_Lt(L: Matrix, y: Vector) -> Tuple[Vector, int]:
 
 def resolver_cholesky(
     A: Matrix, b: Vector
-) -> Tuple[Matrix, Vector, Vector, int, int, int, int, int]:
+) -> Tuple[Matrix, Vector, Vector, int, List[int], int, int, int]:
     """
     Encadeia: A = L L^T, L y = b, L^T x = y.
 
-    Retorna L, y, x e os flops (fatoracao sem raizes, raizes, forward,
-    backward, total).
+    Retorna L, y, x e os flops (fatoracao sem raizes, lista por raiz,
+    forward, backward, total).
     """
-    L, flops_fat, flops_raiz = decomposicao_cholesky(A)
+    L, flops_fat, flops_raizes = decomposicao_cholesky(A)
     y, flops_fwd = substituicao_direta(L, b)
     x, flops_bwd = substituicao_retroativa_Lt(L, y)
-    flops_total = flops_fat + flops_raiz + flops_fwd + flops_bwd
-    return L, y, x, flops_fat, flops_raiz, flops_fwd, flops_bwd, flops_total
+    flops_total = flops_fat + sum(flops_raizes) + flops_fwd + flops_bwd
+    return L, y, x, flops_fat, flops_raizes, flops_fwd, flops_bwd, flops_total
 
 
 # ---------------------------------------------------------------------------
@@ -202,8 +208,9 @@ def executar_cholesky(
         "A = L L^T;  L y = b;  L^T x = y"
     )
     (
-        L, y, x, flops_fat, flops_raiz, flops_fwd, flops_bwd, flops_total
+        L, y, x, flops_fat, flops_raizes, flops_fwd, flops_bwd, flops_total
     ) = resolver_cholesky(A, b)
+    flops_raiz = sum(flops_raizes)
     flops_sem_raiz = flops_total - flops_raiz
     imprimir_matriz("L", L)
     imprimir_vetor("\ny (Ly=b)", y)
@@ -214,6 +221,14 @@ def executar_cholesky(
     print(f"Flops (backward L^T x=y): {flops_bwd}")
     print(f"Flops (Cholesky, sem raizes): {flops_sem_raiz}")
     print(f"Flops (Cholesky, total com raizes): {flops_total}")
+    imprimir_tabela_fases(
+        f"Custo computacional - Cholesky, sem raizes (n = {len(A)})",
+        [flops_fat, flops_fwd, flops_bwd],
+        formulas_cholesky(len(A)),
+    )
+    print(f"  Raizes por Newton (flops por raiz L[j][j]): {flops_raizes}"
+          f" = {flops_raiz}")
+    print("  (3 flops por iteracao; depende de quantas iteracoes cada raiz leva.)")
 
     imprimir_secao("Verificacao Cholesky")
     print(f"max |A - L L^T| = {max_abs_diff_matriz(A, multiplicar_LLt(L)):.3e}")

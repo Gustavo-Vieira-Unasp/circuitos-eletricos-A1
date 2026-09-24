@@ -15,6 +15,7 @@ Bibliotecas em uso (nenhuma resolve Ax=b nem fatora):
   - sys — stdin/stderr e saida do processo
   - typing — aliases; sem matematica em runtime
   - solvers_nodal — parser Falstad, I/O de matrizes e Gauss (so para check)
+  - custo_computacional — formulas de flops por fase (so para exibir o custo)
 
 Proibido para fatorar/resolver: numpy / scipy / math (ou equivalentes).
 A decomposicao LU e 100% loops manuais com + - * /.
@@ -25,6 +26,7 @@ from __future__ import annotations
 import sys
 from typing import Optional, Sequence, Tuple
 
+from custo_computacional import formulas_lu, imprimir_tabela_fases
 from solvers_nodal import (
     Matrix,
     Vector,
@@ -170,6 +172,13 @@ def executar_lu(A: Matrix, b: Vector) -> Tuple[Vector, int, int]:
     print(f"Flops (forward Ly=b): {flops_fwd}")
     print(f"Flops (backward Ux=y): {flops_bwd}")
     print(f"Flops (LU, total): {flops_total}")
+    imprimir_tabela_fases(
+        f"Custo computacional - LU (n = {len(A)})",
+        [flops_fat, flops_fwd, flops_bwd],
+        formulas_lu(len(A)),
+    )
+    print("  A direta conta 1 subtracao b[i] - soma por linha (i > 0): por isso")
+    print("  LU = Gauss + (n - 1) flops.")
 
     imprimir_secao("Verificacao LU")
     print(f"max |A - L U| = {max_abs_diff_matriz(A, multiplicar_LU(L, U)):.3e}")

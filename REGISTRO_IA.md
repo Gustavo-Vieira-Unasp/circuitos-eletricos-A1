@@ -21,5 +21,6 @@ Registro de qual IA / agente produziu cada parte do trabalho.
 | Título do menu por método | 3 | `obter_sistema`/`menu_interativo` recebem `metodo`; título e ajuda mostram Gauss / LU / Cholesky conforme o script | Cursor Auto (Composer) |
 | main + entrega única | 3 | `__pycache__` no `.gitignore`; helpers comuns em `solvers_nodal`; `executar_gauss/lu/cholesky`; `main.py` roda os três; `gerar_entrega.py` gera `entrega/atividade01_circuitos.py` (com Etapas 1–2 no cabeçalho) + `.txt` | Cursor Auto (Composer) |
 | Nomes + saída embutida | 3 | Nomes do grupo no cabeçalho da entrega; saída do console anexada como comentário no fim de `entrega/atividade01_circuitos.py` | Cursor Auto (Composer) |
+| Custo computacional detalhado | 3 | Flops por fase vs fórmula fechada nos três métodos; `custo_computacional.py` (assintótico n = 5/50/500, Gauss esparso 76 vs 120, Newton com chute 61 vs 72); seção "Como reduzir o custo" (inclui nota sobre `__pycache__`) | Cursor Auto (Composer) |
 
 Convenção: novas linhas são **acrescentadas** ao final da tabela a cada entrega parcial (sem coluna de data).

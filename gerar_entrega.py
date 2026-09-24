@@ -27,15 +27,16 @@ PASTA_ENTREGA = RAIZ / "entrega"
 ARQUIVO_ENTREGA = PASTA_ENTREGA / "atividade01_circuitos.py"
 CIRCUITO = "circuito_falstad.txt"
 
-# (arquivo, titulo da secao, manter o main?)
+# (arquivo, titulo da secao, manter o main? None = modulo sem main)
 PARTES = [
     ("solvers_nodal.py", "Leitura do circuito, utilitarios e Etapa 3.1 - Eliminacao gaussiana", False),
     ("fatoracao_LU.py", "Etapa 3.2 - Decomposicao LU (Doolittle)", False),
     ("fatoracao_cholesky.py", "Etapa 3.3 - Fatoracao de Cholesky", False),
+    ("custo_computacional.py", "Custo computacional - formulas e reducoes de custo", None),
     ("main.py", "main - executa os tres metodos no mesmo sistema", True),
 ]
 
-MODULOS_INTERNOS = {"solvers_nodal", "fatoracao_LU", "fatoracao_cholesky"}
+MODULOS_INTERNOS = {"solvers_nodal", "fatoracao_LU", "fatoracao_cholesky", "custo_computacional"}
 IMPORTS_PERMITIDOS = {"__future__", "argparse", "sys", "fractions", "pathlib", "typing"}
 
 IMPORTS = """\
@@ -45,7 +46,7 @@ import argparse
 import sys
 from fractions import Fraction
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 """
 
 CABECALHO = '''\
@@ -108,6 +109,33 @@ Etapa 3 - Metodos implementados do zero (loops com + - * /)
   3.3 Fatoracao de Cholesky A = L L^T (raiz por Newton): imprime L e
       compara o custo com a LU
 Convencao de flops: a - b*c conta 2; cada divisao conta 1.
+
+=============================================================================
+Custo computacional (flops contados = formulas fechadas; n = 5)
+=============================================================================
+  Gauss:    eliminacao em A   n(n-1)/2 + n(n-1)(2n-1)/3   = 70
+            atualizacao de b  n(n-1)                      = 20
+            retroativa        n^2 + n                     = 30   total 120
+  LU:       fatoracao         (mesma da eliminacao)       = 70
+            direta (Lii = 1)  n^2 - 1                     = 24
+            retroativa        n^2 + n                     = 30   total 124
+  Cholesky: fatoracao         (2n^3 + 3n^2 - 5n)/6        = 50
+            direta            n^2 + n                     = 30
+            retroativa        n^2 + n                     = 30   total 110
+            + 5 raizes por Newton (3 flops por iteracao)  = 72   total 182
+
+  Ordens: Gauss ~ 2n^3/3, LU ~ 2n^3/3, Cholesky ~ n^3/3 (usa a simetria).
+  Com n = 5 as triangulares (~n^2) pesam muito: Cholesky/LU = 0.89;
+  para n = 500 a razao ja e 0.505.
+
+  Reducoes implementadas e medidas (ver saida no fim do arquivo):
+    - Gauss que pula os zeros de G (esparsidade): 76 flops contra 120.
+    - Newton com chute (1 + s)/2 e parada antecipada: 61 contra 72 nas raizes.
+  Outras ideias: reusar a fatoracao para um novo b (so as triangulares:
+  54 na LU, 60 no Cholesky); LDL^T evita as raizes; sem pivoteamento
+  porque G e SPD. __pycache__ guarda o bytecode dos modulos importados e
+  economiza so o tempo de compilacao ao iniciar (0 flops); por isso fica
+  no .gitignore.
 
 Bibliotecas usadas (nenhuma fatora nem resolve A x = b):
   __future__ (type hints), argparse (linha de comando), sys (stdin/saida),
@@ -174,7 +202,7 @@ def gerar() -> str:
         linhas = (RAIZ / arquivo).read_text(encoding="utf-8").splitlines()
         linhas = remover_docstring(linhas)
         linhas = remover_imports(linhas, arquivo)
-        if not manter_main:
+        if manter_main is False:
             linhas = cortar_main(linhas, arquivo)
         linhas = aparar(linhas)
 

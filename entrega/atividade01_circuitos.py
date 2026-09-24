@@ -58,6 +58,33 @@ Etapa 3 - Metodos implementados do zero (loops com + - * /)
       compara o custo com a LU
 Convencao de flops: a - b*c conta 2; cada divisao conta 1.
 
+=============================================================================
+Custo computacional (flops contados = formulas fechadas; n = 5)
+=============================================================================
+  Gauss:    eliminacao em A   n(n-1)/2 + n(n-1)(2n-1)/3   = 70
+            atualizacao de b  n(n-1)                      = 20
+            retroativa        n^2 + n                     = 30   total 120
+  LU:       fatoracao         (mesma da eliminacao)       = 70
+            direta (Lii = 1)  n^2 - 1                     = 24
+            retroativa        n^2 + n                     = 30   total 124
+  Cholesky: fatoracao         (2n^3 + 3n^2 - 5n)/6        = 50
+            direta            n^2 + n                     = 30
+            retroativa        n^2 + n                     = 30   total 110
+            + 5 raizes por Newton (3 flops por iteracao)  = 72   total 182
+
+  Ordens: Gauss ~ 2n^3/3, LU ~ 2n^3/3, Cholesky ~ n^3/3 (usa a simetria).
+  Com n = 5 as triangulares (~n^2) pesam muito: Cholesky/LU = 0.89;
+  para n = 500 a razao ja e 0.505.
+
+  Reducoes implementadas e medidas (ver saida no fim do arquivo):
+    - Gauss que pula os zeros de G (esparsidade): 76 flops contra 120.
+    - Newton com chute (1 + s)/2 e parada antecipada: 61 contra 72 nas raizes.
+  Outras ideias: reusar a fatoracao para um novo b (so as triangulares:
+  54 na LU, 60 no Cholesky); LDL^T evita as raizes; sem pivoteamento
+  porque G e SPD. __pycache__ guarda o bytecode dos modulos importados e
+  economiza so o tempo de compilacao ao iniciar (0 flops); por isso fica
+  no .gitignore.
+
 Bibliotecas usadas (nenhuma fatora nem resolve A x = b):
   __future__ (type hints), argparse (linha de comando), sys (stdin/saida),
   pathlib (caminho do .txt), typing (aliases de tipo), fractions (so para
@@ -71,7 +98,7 @@ import argparse
 import sys
 from fractions import Fraction
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 
 # ===========================================================================
@@ -449,11 +476,17 @@ def residuo(A: Matrix, x: Vector, b: Vector) -> float:
 # Eliminacao gaussiana + substituicao retroativa
 # ---------------------------------------------------------------------------
 
-def eliminacao_gaussiana(A: Matrix, b: Vector) -> Tuple[Vector, int]:
+def eliminacao_gaussiana_fases(A: Matrix, b: Vector) -> Tuple[Vector, int, int, int]:
+    """
+    Eliminacao sem pivoteamento + retroativa, com flops separados por fase.
+    Retorna x, flops da eliminacao em A, da atualizacao de b e da retroativa.
+    """
     n = len(A)
     M = copiar_matriz(A)
     y = copiar_vetor(b)
-    flops = 0
+    flops_elim = 0
+    flops_b = 0
+    flops_retro = 0
 
     for k in range(n - 1):
         pivo = M[k][k]
@@ -462,32 +495,44 @@ def eliminacao_gaussiana(A: Matrix, b: Vector) -> Tuple[Vector, int]:
 
         for i in range(k + 1, n):
             fator = M[i][k] / pivo
-            flops += 1
+            flops_elim += 1
             M[i][k] = 0.0
             for j in range(k + 1, n):
                 M[i][j] = M[i][j] - fator * M[k][j]
-                flops += 2
+                flops_elim += 2
             y[i] = y[i] - fator * y[k]
-            flops += 2
+            flops_b += 2
 
     x = [0.0] * n
     for i in range(n - 1, -1, -1):
         soma = 0.0
         for j in range(i + 1, n):
             soma = soma + M[i][j] * x[j]
-            flops += 2
+            flops_retro += 2
         x[i] = (y[i] - soma) / M[i][i]
-        flops += 2
+        flops_retro += 2
 
-    return x, flops
+    return x, flops_elim, flops_b, flops_retro
+
+
+def eliminacao_gaussiana(A: Matrix, b: Vector) -> Tuple[Vector, int]:
+    """Resolve A x = b por Gauss. Retorna x e o total de flops."""
+    x, flops_elim, flops_b, flops_retro = eliminacao_gaussiana_fases(A, b)
+    return x, flops_elim + flops_b + flops_retro
 
 
 def executar_gauss(A: Matrix, b: Vector) -> Tuple[Vector, int]:
-    """Resolve por Gauss e imprime x e o custo. Retorna x e flops."""
+    """Resolve por Gauss e imprime x e o custo por fase. Retorna x e flops."""
     imprimir_secao("Eliminacao gaussiana + substituicao retroativa")
-    x, flops = eliminacao_gaussiana(A, b)
+    x, flops_elim, flops_b, flops_retro = eliminacao_gaussiana_fases(A, b)
+    flops = flops_elim + flops_b + flops_retro
     imprimir_vetor("x (Gauss)", x)
     print(f"Flops (Gauss, total): {flops}")
+    imprimir_tabela_fases(
+        f"Custo computacional - Gauss (n = {len(A)})",
+        [flops_elim, flops_b, flops_retro],
+        formulas_gauss(len(A)),
+    )
     return x, flops
 
 
@@ -634,6 +679,13 @@ def executar_lu(A: Matrix, b: Vector) -> Tuple[Vector, int, int]:
     print(f"Flops (forward Ly=b): {flops_fwd}")
     print(f"Flops (backward Ux=y): {flops_bwd}")
     print(f"Flops (LU, total): {flops_total}")
+    imprimir_tabela_fases(
+        f"Custo computacional - LU (n = {len(A)})",
+        [flops_fat, flops_fwd, flops_bwd],
+        formulas_lu(len(A)),
+    )
+    print("  A direta conta 1 subtracao b[i] - soma por linha (i > 0): por isso")
+    print("  LU = Gauss + (n - 1) flops.")
 
     imprimir_secao("Verificacao LU")
     print(f"max |A - L U| = {max_abs_diff_matriz(A, multiplicar_LU(L, U)):.3e}")
@@ -678,22 +730,26 @@ def raiz_quadrada(s: float) -> Tuple[float, int]:
 # Fatoracao de Cholesky (Banachiewicz, L inferior)
 # ---------------------------------------------------------------------------
 
-def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int, int]:
+def decomposicao_cholesky(
+    A: Matrix,
+    raiz: Callable[[float], Tuple[float, int]] = raiz_quadrada,
+) -> Tuple[Matrix, int, List[int]]:
     """
     Fatora A = L L^T.
 
     Etapa: coluna j. A diagonal e a raiz do residual;
     abaixo da diagonal, L[i][j] = (A[i][j] - soma) / L[j][j].
-    Convenção de flops: a - b*c conta 2; cada divisao conta 1.
-    Os flops das raizes (Newton) ficam num contador separado, para que
-    a parte aritmetica seja comparavel com a LU.
+    Convencao de flops: a - b*c conta 2; cada divisao conta 1.
+    Os flops das raizes (Newton) ficam separados, um valor por raiz, para
+    que a parte aritmetica seja comparavel com a LU. `raiz` permite trocar
+    a funcao de raiz (ver raiz_quadrada_chute em custo_computacional).
 
-    Retorna L, flops aritmeticos (sem raizes) e flops das raizes.
+    Retorna L, flops aritmeticos (sem raizes) e a lista de flops de cada raiz.
     """
     n = len(A)
     L: Matrix = [[0.0] * n for _ in range(n)]
     flops = 0
-    flops_raiz = 0
+    flops_raizes: List[int] = []
 
     for j in range(n):
         s = A[j][j]
@@ -701,8 +757,8 @@ def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int, int]:
             s = s - L[j][k] * L[j][k]
             flops += 2
 
-        L[j][j], flops_sqrt = raiz_quadrada(s)
-        flops_raiz += flops_sqrt
+        L[j][j], flops_sqrt = raiz(s)
+        flops_raizes.append(flops_sqrt)
         if abs(L[j][j]) < 1e-15:
             raise ZeroDivisionError(f"Pivo nulo na coluna {j} (Cholesky).")
 
@@ -714,7 +770,7 @@ def decomposicao_cholesky(A: Matrix) -> Tuple[Matrix, int, int]:
             L[i][j] = s / L[j][j]
             flops += 1
 
-    return L, flops, flops_raiz
+    return L, flops, flops_raizes
 
 
 def substituicao_direta(L: Matrix, b: Vector) -> Tuple[Vector, int]:
@@ -761,18 +817,18 @@ def substituicao_retroativa_Lt(L: Matrix, y: Vector) -> Tuple[Vector, int]:
 
 def resolver_cholesky(
     A: Matrix, b: Vector
-) -> Tuple[Matrix, Vector, Vector, int, int, int, int, int]:
+) -> Tuple[Matrix, Vector, Vector, int, List[int], int, int, int]:
     """
     Encadeia: A = L L^T, L y = b, L^T x = y.
 
-    Retorna L, y, x e os flops (fatoracao sem raizes, raizes, forward,
-    backward, total).
+    Retorna L, y, x e os flops (fatoracao sem raizes, lista por raiz,
+    forward, backward, total).
     """
-    L, flops_fat, flops_raiz = decomposicao_cholesky(A)
+    L, flops_fat, flops_raizes = decomposicao_cholesky(A)
     y, flops_fwd = substituicao_direta(L, b)
     x, flops_bwd = substituicao_retroativa_Lt(L, y)
-    flops_total = flops_fat + flops_raiz + flops_fwd + flops_bwd
-    return L, y, x, flops_fat, flops_raiz, flops_fwd, flops_bwd, flops_total
+    flops_total = flops_fat + sum(flops_raizes) + flops_fwd + flops_bwd
+    return L, y, x, flops_fat, flops_raizes, flops_fwd, flops_bwd, flops_total
 
 
 # ---------------------------------------------------------------------------
@@ -804,8 +860,9 @@ def executar_cholesky(
         "A = L L^T;  L y = b;  L^T x = y"
     )
     (
-        L, y, x, flops_fat, flops_raiz, flops_fwd, flops_bwd, flops_total
+        L, y, x, flops_fat, flops_raizes, flops_fwd, flops_bwd, flops_total
     ) = resolver_cholesky(A, b)
+    flops_raiz = sum(flops_raizes)
     flops_sem_raiz = flops_total - flops_raiz
     imprimir_matriz("L", L)
     imprimir_vetor("\ny (Ly=b)", y)
@@ -816,6 +873,14 @@ def executar_cholesky(
     print(f"Flops (backward L^T x=y): {flops_bwd}")
     print(f"Flops (Cholesky, sem raizes): {flops_sem_raiz}")
     print(f"Flops (Cholesky, total com raizes): {flops_total}")
+    imprimir_tabela_fases(
+        f"Custo computacional - Cholesky, sem raizes (n = {len(A)})",
+        [flops_fat, flops_fwd, flops_bwd],
+        formulas_cholesky(len(A)),
+    )
+    print(f"  Raizes por Newton (flops por raiz L[j][j]): {flops_raizes}"
+          f" = {flops_raiz}")
+    print("  (3 flops por iteracao; depende de quantas iteracoes cada raiz leva.)")
 
     imprimir_secao("Verificacao Cholesky")
     print(f"max |A - L L^T| = {max_abs_diff_matriz(A, multiplicar_LLt(L)):.3e}")
@@ -832,9 +897,220 @@ def executar_cholesky(
 
 
 # ===========================================================================
+# Custo computacional - formulas e reducoes de custo
+# (origem: custo_computacional.py)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Formulas fechadas (inteiros; conferem com os contadores dos solvers)
+# ---------------------------------------------------------------------------
+
+def formulas_gauss(n: int) -> Dict[str, int]:
+    """
+    Eliminacao em A: para cada coluna k ha m = n-1-k linhas abaixo, cada uma
+    com 1 divisao + 2m flops -> soma m(1 + 2m) = n(n-1)/2 + n(n-1)(2n-1)/3.
+    Atualizacao de b: 2 flops por linha eliminada -> n(n-1).
+    Retroativa: 2 por termo + 2 por linha -> n^2 + n.
+    """
+    return {
+        "eliminacao em A": n * (n - 1) // 2 + n * (n - 1) * (2 * n - 1) // 3,
+        "atualizacao de b": n * (n - 1),
+        "substituicao retroativa": n * n + n,
+    }
+
+
+def formulas_lu(n: int) -> Dict[str, int]:
+    """
+    Fatoracao: mesmas contas da eliminacao em A.
+    Direta com Lii = 1: 2 por termo + 1 subtracao por linha (i > 0) -> n^2 - 1.
+    Retroativa: n^2 + n.
+    """
+    return {
+        "fatoracao A = LU": n * (n - 1) // 2 + n * (n - 1) * (2 * n - 1) // 3,
+        "substituicao direta Ly = b": n * n - 1,
+        "substituicao retroativa Ux = y": n * n + n,
+    }
+
+
+def formulas_cholesky(n: int) -> Dict[str, int]:
+    """
+    Fatoracao sem raizes: coluna j tem 2j flops na diagonal e (n-1-j)(2j+1)
+    abaixo dela -> soma = (2n^3 + 3n^2 - 5n)/6 ~ n^3/3.
+    Direta e retroativa (Lii != 1): n^2 + n cada.
+    As raizes (Newton) dependem do numero de iteracoes: sem formula fechada.
+    """
+    return {
+        "fatoracao A = LL^T (sem raizes)": (2 * n ** 3 + 3 * n ** 2 - 5 * n) // 6,
+        "substituicao direta Ly = b": n * n + n,
+        "substituicao retroativa L^T x = y": n * n + n,
+    }
+
+
+def imprimir_tabela_fases(
+    titulo: str, contados: Sequence[int], formulas: Dict[str, int]
+) -> None:
+    """Tabela Fase | contado | formula(n)."""
+    print(f"\n{titulo}")
+    print(f"  {'Fase':<36}{'contado':>9}{'formula':>9}")
+    for (fase, esperado), contado in zip(formulas.items(), contados):
+        marca = "" if contado == esperado else "  <-- diferente"
+        print(f"  {fase:<36}{contado:>9}{esperado:>9}{marca}")
+    print(f"  {'total':<36}{sum(contados):>9}{sum(formulas.values()):>9}")
+
+
+def imprimir_comparacao_assintotica(ns: Sequence[int] = (5, 50, 500)) -> None:
+    """Totais por metodo; a razao Cholesky/LU tende a 1/2 quando n cresce."""
+    print(f"  {'n':>5}{'Gauss':>14}{'LU':>14}{'Cholesky*':>14}{'Chol/LU':>10}")
+    for n in ns:
+        g = sum(formulas_gauss(n).values())
+        lu = sum(formulas_lu(n).values())
+        ch = sum(formulas_cholesky(n).values())
+        print(f"  {n:>5}{g:>14}{lu:>14}{ch:>14}{ch / lu:>10.3f}")
+    print("  * Cholesky sem as n raizes (custo linear em n, desprezivel perto de n^3/3).")
+    print("  Ordens: Gauss ~ 2n^3/3, LU ~ 2n^3/3, Cholesky ~ n^3/3.")
+
+
+# ---------------------------------------------------------------------------
+# Reducao A: Gauss que explora os zeros de G (esparsidade)
+# ---------------------------------------------------------------------------
+
+def eliminacao_gaussiana_esparsa(
+    A: List[List[float]], b: List[float]
+) -> Tuple[List[float], int]:
+    """
+    Mesmo algoritmo da eliminacao gaussiana, mas:
+      - se M[i][k] == 0 a linha i nao precisa ser eliminada (fator 0);
+      - termos com M[k][j] == 0 (ou x[j] multiplicado por 0) sao pulados.
+    Em G cada no so se liga aos vizinhos, entao ha zeros estruturais.
+    Conferir zero e uma comparacao, nao entra na conta de flops.
+    """
+    n = len(A)
+    M = [row[:] for row in A]
+    y = b[:]
+    flops = 0
+
+    for k in range(n - 1):
+        pivo = M[k][k]
+        if abs(pivo) < 1e-15:
+            raise ZeroDivisionError(f"Pivo nulo na coluna {k} (sem pivoteamento).")
+        for i in range(k + 1, n):
+            if M[i][k] == 0.0:
+                continue
+            fator = M[i][k] / pivo
+            flops += 1
+            M[i][k] = 0.0
+            for j in range(k + 1, n):
+                if M[k][j] != 0.0:
+                    M[i][j] = M[i][j] - fator * M[k][j]
+                    flops += 2
+            if y[k] != 0.0:
+                y[i] = y[i] - fator * y[k]
+                flops += 2
+
+    x = [0.0] * n
+    for i in range(n - 1, -1, -1):
+        soma = 0.0
+        for j in range(i + 1, n):
+            if M[i][j] != 0.0:
+                soma = soma + M[i][j] * x[j]
+                flops += 2
+        x[i] = (y[i] - soma) / M[i][i]
+        flops += 2
+
+    return x, flops
+
+
+# ---------------------------------------------------------------------------
+# Reducao B: raiz por Newton com chute melhor e parada antecipada
+# ---------------------------------------------------------------------------
+
+def raiz_quadrada_chute(s: float) -> Tuple[float, int]:
+    """
+    sqrt(s) por Newton, mais barato que raiz_quadrada:
+      1. reducao de faixa: s = s' * 4^k com s' em [1/4, 4] (2 flops por passo,
+         e 1 flop para desfazer no fim), pois sqrt(4^k) = 2^k;
+      2. chute x0 = (1 + s')/2 (2 flops), a reta tangente de sqrt em s' = 1;
+      3. parada quando |x_novo - x| < 1e-8: como Newton converge
+         quadraticamente, o erro do novo x ja e ~ d^2 / (2x) < 1e-16,
+         entao a iteracao extra de confirmacao e dispensavel.
+    """
+    if s <= 0.0:
+        raise ValueError(f"Argumento nao positivo para raiz: {s} (matriz nao SPD).")
+
+    flops = 0
+    escala = 1.0
+    while s > 4.0:
+        s = s / 4.0
+        escala = escala * 2.0
+        flops += 2
+    while s < 0.25:
+        s = s * 4.0
+        escala = escala / 2.0
+        flops += 2
+
+    x = (1.0 + s) / 2.0
+    flops += 2
+    for _ in range(60):
+        x_novo = 0.5 * (x + s / x)
+        flops += 3
+        d = x_novo - x
+        if d < 0.0:
+            d = -d
+        x = x_novo
+        if d < 1e-8:
+            break
+
+    if escala != 1.0:
+        x = x * escala
+        flops += 1
+    return x, flops
+
+
+# ===========================================================================
 # main - executa os tres metodos no mesmo sistema
 # (origem: main.py)
 # ===========================================================================
+
+def secao_custo(A: Matrix, b: Vector, x_g: Vector, flops_g: int, flops_lu: int,
+                flops_ch: int) -> None:
+    """Comparacao assintotica e formas de reduzir o custo (medidas e explicadas)."""
+    n = len(A)
+
+    imprimir_secao("Custo computacional: comparacao assintotica (formulas)")
+    imprimir_comparacao_assintotica()
+    print(f"  Para n = {n} as substituicoes triangulares (~n^2) ainda pesam muito,")
+    print(f"  por isso Cholesky fica {flops_ch} contra {flops_lu} da LU, e nao metade.")
+
+    imprimir_secao("Como reduzir o custo - implementado e medido")
+    x_esp, flops_esp = eliminacao_gaussiana_esparsa(A, b)
+    zeros = sum(1 for linha in A for v in linha if v == 0.0)
+    print(f"1) Gauss explorando os zeros de G ({zeros} de {n * n} entradas sao zero):")
+    print(f"   flops {flops_esp} contra {flops_g} "
+          f"({flops_g - flops_esp} a menos, {100 * (flops_g - flops_esp) / flops_g:.0f}%)")
+    print(f"   max |x_esparso - x_Gauss| = {max_abs_diff_vetor(x_esp, x_g):.3e}")
+
+    L_orig, _, raizes_orig = decomposicao_cholesky(A)
+    L_chute, _, raizes_chute = decomposicao_cholesky(A, raiz=raiz_quadrada_chute)
+    r_orig, r_chute = sum(raizes_orig), sum(raizes_chute)
+    print("2) Raiz por Newton com chute (1 + s)/2 e parada antecipada:")
+    print(f"   flops por raiz {raizes_chute} = {r_chute} contra "
+          f"{raizes_orig} = {r_orig} ({r_orig - r_chute} a menos)")
+    print(f"   Cholesky total com raizes: {flops_ch + r_chute} contra {flops_ch + r_orig}")
+    print(f"   max |L_chute - L| = {max_abs_diff_matriz(L_chute, L_orig):.3e}")
+
+    imprimir_secao("Como reduzir o custo - outras ideias")
+    print("- Reusar a fatoracao para um novo b (outra configuracao de fontes):")
+    print(f"  LU refaz so as triangulares ({2 * n * n + n - 1} flops) e Cholesky "
+          f"{2 * (n * n + n)}, contra {flops_g} de um Gauss completo.")
+    print("- Simetria: Cholesky calcula so L (metade da matriz), ~n^3/3 contra ~2n^3/3.")
+    print("- LDL^T: mesma ordem do Cholesky, sem nenhuma raiz quadrada.")
+    print("- As n raizes custam O(n); para n grande somem perto de n^3/3.")
+    print("- Pivoteamento nao e necessario: G e SPD, os pivos ja sao positivos.")
+    print("- __pycache__: guarda o bytecode compilado dos modulos importados, entao")
+    print("  as execucoes seguintes nao recompilam o codigo. Economiza milissegundos")
+    print("  de inicializacao e 0 flops; o arquivo unico rodado como script nao e")
+    print("  cacheado. A pasta fica no .gitignore por ser gerada automaticamente.")
+
 
 # ---------------------------------------------------------------------------
 # main
@@ -862,6 +1138,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     print(f"{'LU (fatoracao + 2 triang.)':<30}{flops_lu:>8}")
     print(f"{'Cholesky (sem raizes)':<30}{flops_ch:>8}")
     print(f"{'Cholesky (com raizes Newton)':<30}{flops_ch_raiz:>8}")
+
+    secao_custo(A, b, x_g, flops_g, flops_lu, flops_ch)
 
     if check_ref:
         verificar_referencia(A, b, x_g)
@@ -913,6 +1191,13 @@ if __name__ == "__main__":
 # x (Gauss) = [ 26.362319, 25.217391, 26.202899, 29.797101, 18.666667 ]
 # Flops (Gauss, total): 120
 #
+# Custo computacional - Gauss (n = 5)
+#   Fase                                  contado  formula
+#   eliminacao em A                            70       70
+#   atualizacao de b                           20       20
+#   substituicao retroativa                    30       30
+#   total                                     120      120
+#
 # ------------------------------------------------------------
 # Decomposicao LU (Doolittle, sem pivoteamento)
 # A = L U;  L y = b;  U x = y
@@ -937,6 +1222,15 @@ if __name__ == "__main__":
 # Flops (forward Ly=b): 24
 # Flops (backward Ux=y): 30
 # Flops (LU, total): 124
+#
+# Custo computacional - LU (n = 5)
+#   Fase                                  contado  formula
+#   fatoracao A = LU                           70       70
+#   substituicao direta Ly = b                 24       24
+#   substituicao retroativa Ux = y             30       30
+#   total                                     124      124
+#   A direta conta 1 subtracao b[i] - soma por linha (i > 0): por isso
+#   LU = Gauss + (n - 1) flops.
 #
 # ------------------------------------------------------------
 # Verificacao LU
@@ -964,6 +1258,15 @@ if __name__ == "__main__":
 # Flops (backward L^T x=y): 30
 # Flops (Cholesky, sem raizes): 110
 # Flops (Cholesky, total com raizes): 182
+#
+# Custo computacional - Cholesky, sem raizes (n = 5)
+#   Fase                                  contado  formula
+#   fatoracao A = LL^T (sem raizes)            50       50
+#   substituicao direta Ly = b                 30       30
+#   substituicao retroativa L^T x = y          30       30
+#   total                                     110      110
+#   Raizes por Newton (flops por raiz L[j][j]): [15, 3, 18, 18, 18] = 72
+#   (3 flops por iteracao; depende de quantas iteracoes cada raiz leva.)
 #
 # ------------------------------------------------------------
 # Verificacao Cholesky
@@ -994,6 +1297,43 @@ if __name__ == "__main__":
 # LU (fatoracao + 2 triang.)         124
 # Cholesky (sem raizes)              110
 # Cholesky (com raizes Newton)       182
+#
+# ------------------------------------------------------------
+# Custo computacional: comparacao assintotica (formulas)
+# ------------------------------------------------------------
+#       n         Gauss            LU     Cholesky*   Chol/LU
+#       5           120           124           110     0.887
+#      50         87075         87124         47975     0.551
+#     500      83708250      83708749      42292250     0.505
+#   * Cholesky sem as n raizes (custo linear em n, desprezivel perto de n^3/3).
+#   Ordens: Gauss ~ 2n^3/3, LU ~ 2n^3/3, Cholesky ~ n^3/3.
+#   Para n = 5 as substituicoes triangulares (~n^2) ainda pesam muito,
+#   por isso Cholesky fica 110 contra 124 da LU, e nao metade.
+#
+# ------------------------------------------------------------
+# Como reduzir o custo - implementado e medido
+# ------------------------------------------------------------
+# 1) Gauss explorando os zeros de G (8 de 25 entradas sao zero):
+#    flops 76 contra 120 (44 a menos, 37%)
+#    max |x_esparso - x_Gauss| = 0.000e+00
+# 2) Raiz por Newton com chute (1 + s)/2 e parada antecipada:
+#    flops por raiz [11, 5, 14, 14, 17] = 61 contra [15, 3, 18, 18, 18] = 72 (11 a menos)
+#    Cholesky total com raizes: 171 contra 182
+#    max |L_chute - L| = 0.000e+00
+#
+# ------------------------------------------------------------
+# Como reduzir o custo - outras ideias
+# ------------------------------------------------------------
+# - Reusar a fatoracao para um novo b (outra configuracao de fontes):
+#   LU refaz so as triangulares (54 flops) e Cholesky 60, contra 120 de um Gauss completo.
+# - Simetria: Cholesky calcula so L (metade da matriz), ~n^3/3 contra ~2n^3/3.
+# - LDL^T: mesma ordem do Cholesky, sem nenhuma raiz quadrada.
+# - As n raizes custam O(n); para n grande somem perto de n^3/3.
+# - Pivoteamento nao e necessario: G e SPD, os pivos ja sao positivos.
+# - __pycache__: guarda o bytecode compilado dos modulos importados, entao
+#   as execucoes seguintes nao recompilam o codigo. Economiza milissegundos
+#   de inicializacao e 0 flops; o arquivo unico rodado como script nao e
+#   cacheado. A pasta fica no .gitignore por ser gerada automaticamente.
 #
 # ------------------------------------------------------------
 # Sanity check vs formulacao_nodal.md (circuito default)

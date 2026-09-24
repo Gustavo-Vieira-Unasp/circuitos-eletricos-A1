@@ -14,6 +14,7 @@ Bibliotecas em uso (nenhuma resolve Ax=b):
   - typing — aliases de tipo (Matrix, Vector, ...); sem matematica em runtime
   - fractions.Fraction — literais exatos so na matriz de referencia da Etapa 2
     (4/3 etc.); convertido para float antes da eliminacao gaussiana
+  - custo_computacional — formulas de flops por fase (so para exibir o custo)
 
 Proibido para fatorar/resolver: numpy / scipy / math (ou equivalentes).
 A eliminacao gaussiana e 100% loops manuais com + - * /.
@@ -26,6 +27,8 @@ import sys
 from fractions import Fraction
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
+
+from custo_computacional import formulas_gauss, imprimir_tabela_fases
 
 Matrix = List[List[float]]
 Vector = List[float]
@@ -397,11 +400,17 @@ def residuo(A: Matrix, x: Vector, b: Vector) -> float:
 # Eliminacao gaussiana + substituicao retroativa
 # ---------------------------------------------------------------------------
 
-def eliminacao_gaussiana(A: Matrix, b: Vector) -> Tuple[Vector, int]:
+def eliminacao_gaussiana_fases(A: Matrix, b: Vector) -> Tuple[Vector, int, int, int]:
+    """
+    Eliminacao sem pivoteamento + retroativa, com flops separados por fase.
+    Retorna x, flops da eliminacao em A, da atualizacao de b e da retroativa.
+    """
     n = len(A)
     M = copiar_matriz(A)
     y = copiar_vetor(b)
-    flops = 0
+    flops_elim = 0
+    flops_b = 0
+    flops_retro = 0
 
     for k in range(n - 1):
         pivo = M[k][k]
@@ -410,32 +419,44 @@ def eliminacao_gaussiana(A: Matrix, b: Vector) -> Tuple[Vector, int]:
 
         for i in range(k + 1, n):
             fator = M[i][k] / pivo
-            flops += 1
+            flops_elim += 1
             M[i][k] = 0.0
             for j in range(k + 1, n):
                 M[i][j] = M[i][j] - fator * M[k][j]
-                flops += 2
+                flops_elim += 2
             y[i] = y[i] - fator * y[k]
-            flops += 2
+            flops_b += 2
 
     x = [0.0] * n
     for i in range(n - 1, -1, -1):
         soma = 0.0
         for j in range(i + 1, n):
             soma = soma + M[i][j] * x[j]
-            flops += 2
+            flops_retro += 2
         x[i] = (y[i] - soma) / M[i][i]
-        flops += 2
+        flops_retro += 2
 
-    return x, flops
+    return x, flops_elim, flops_b, flops_retro
+
+
+def eliminacao_gaussiana(A: Matrix, b: Vector) -> Tuple[Vector, int]:
+    """Resolve A x = b por Gauss. Retorna x e o total de flops."""
+    x, flops_elim, flops_b, flops_retro = eliminacao_gaussiana_fases(A, b)
+    return x, flops_elim + flops_b + flops_retro
 
 
 def executar_gauss(A: Matrix, b: Vector) -> Tuple[Vector, int]:
-    """Resolve por Gauss e imprime x e o custo. Retorna x e flops."""
+    """Resolve por Gauss e imprime x e o custo por fase. Retorna x e flops."""
     imprimir_secao("Eliminacao gaussiana + substituicao retroativa")
-    x, flops = eliminacao_gaussiana(A, b)
+    x, flops_elim, flops_b, flops_retro = eliminacao_gaussiana_fases(A, b)
+    flops = flops_elim + flops_b + flops_retro
     imprimir_vetor("x (Gauss)", x)
     print(f"Flops (Gauss, total): {flops}")
+    imprimir_tabela_fases(
+        f"Custo computacional - Gauss (n = {len(A)})",
+        [flops_elim, flops_b, flops_retro],
+        formulas_gauss(len(A)),
+    )
     return x, flops
 
 
